@@ -129,7 +129,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
         with self.active_traders_lock:
             self.active_traders.remove(request.trader_id)
             self.nodes.remove(request.trader_id) 
-        print(self.nodes,self.active_traders )
+        print("Active nodes are:",self.nodes,"Active traders are:",self.active_traders )
         return bully_pb2.AckMessage(message="Acknowledged Failure")
 
 
@@ -151,15 +151,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
 
         with self.clock_lock:
             clock_value=self.lamport_clock.update(request.clock)
-        # with self.seller_queue_lock:
-        #     # print("here")
-        #     heapq.heappush(self.seller_queue, PrioritizedItem(clock_value, request, "seller",self.node_id))
-        #     # print(self.request_queue)
-        #     try:
-        #         with open(self.seller_queue_file, "wb") as file:
-        #                     pickle.dump(self.seller_queue, file, pickle.HIGHEST_PROTOCOL)
-        #     except Exception as e:
-        #          print(e)
+      
         if request.product=="boar":
             with self.boar_queue_lock:
                 # print("here")
@@ -202,16 +194,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
        
         with self.clock_lock:
             clock_value=self.lamport_clock.update(request.clock)
-        
-        # with self.request_queue_lock:
-        #     # print("here")
-        #     heapq.heappush(self.request_queue, PrioritizedItem(clock_value, request,"buyer", self.node_id))
-          
-        #     try:
-        #         with open(self.queue_file, "wb") as file:
-        #                     pickle.dump(self.request_queue, file, pickle.HIGHEST_PROTOCOL)
-        #     except Exception as e:
-        #          print(e)
+       
         if request.product=="boar":
             with self.boar_queue_lock:
                 # print("here")
@@ -271,10 +254,10 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                     if message=="Available" and t_message=="Unavailable":
                         
                             self.faults["overselling"]+=1
-                            print("overselling")
-                    else:
+                            print(f"Overselling: buyer_id: {buyer_id}, request_no: {request_no}, product: {product}, quantity: {quantity} at {datetime.now()}, trader: {tid}")
+                    if message=="Unavailable" and t_message=="Available":
                         self.faults["underselling"]+=1
-                        print("underselling")
+                        print(f"Underselling: buyer_id: {buyer_id}, request_no: {request_no}, product: {product}, quantity: {quantity} at {datetime.now()}, trader: {tid}")
                 
                       
             
@@ -307,8 +290,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
     #serves requests from the queue 
 
     def serve_request_boar(self):
-        #  if self.node_id==5:
-        #     time.sleep(1000)
+      
         role=None
         time.sleep(20)
         while True:
@@ -345,7 +327,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                     with open(self.boar_queue_path, "wb") as file:
                             pickle.dump(self.boar_queue, file)
             
-            time.sleep(10) 
+            
     
     def serve_request_fish(self):
         #  if self.node_id==5:
@@ -386,7 +368,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                     with open(self.fish_queue_path, "wb") as file:
                             pickle.dump(self.fish_queue, file)
             
-            time.sleep(10) 
+           
     
     def serve_request_salt(self):
         #  if self.node_id==5:
@@ -427,42 +409,9 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                     with open(self.salt_queue_path, "wb") as file:
                             pickle.dump(self.salt_queue, file)
             
-            time.sleep(10) 
-    
-    # def serve_requests(self):
-    #     #  if self.node_id==5:
-    #     #     time.sleep(1000)
-    #     role=None
-    #     time.sleep(20)
-    #     while True:
-    #         with self.request_queue_lock:
-    #             if self.request_queue:
-    #                 clock_value, request, role,tid= heapq.heappop(self.request_queue) 
-                        
-    #                 if role== "buyer":
-    #                     threading.Thread(target= self.forward_buyer_request_to_warehouse, args=(request.buyer_id,request.product, request.quantity, 0, request.request_no,tid)).start() 
             
-    #                 with open(self.queue_file, "wb") as file:
-    #                         pickle.dump(self.request_queue, file)
-            
-    #         time.sleep(10)
     
-    # def serve_sellers(self):
-    #     #  if self.node_id==5:
-    #     #     time.sleep(1000)
-    #     time.sleep(20)
-    #     role=None
-    #     while True:
-    #         with self.seller_queue_lock:
-    #             if self.seller_queue:
-    #                 clock_value, request, role,tid= heapq.heappop(self.seller_queue) 
-    #                 if role=="seller":
-    #                         threading.Thread(target= self.forward_seller_request_to_warehouse, args=(request.seller_id,request.product, request.quantity, request.registration_no, tid)).start() 
-
-    #                 with open(self.queue_file, "wb") as file:
-    #                     pickle.dump(self.seller_queue, file)
-                
-    #         time.sleep(10)
+   
     
     #loop to monitor nodes 
     def monitoring_nodes(self):
@@ -476,7 +425,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                 channel = grpc.insecure_channel(f'localhost:{5000 + node}')
                 stub = bully_pb2_grpc.BullyElectionStub(channel)
                 try:
-                    response=stub.HeartBeat(bully_pb2.PingMessage( message="Are you there?"), timeout=3) 
+                    response=stub.HeartBeat(bully_pb2.PingMessage( message="Are you there?"), timeout=5) 
                 
                 except grpc.RpcError as e:
                     with self.active_traders_lock:
@@ -487,7 +436,8 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
         
         self.trader_failure(other_traders[0])
         with self.boar_queue_lock:
-            print("Lock acquired")
+            print("Merging queue of boar")
+            
             file_name= f"{self.base_directory}/boarqueue{other_traders[0]}.pkl"
             with open(file_name, "rb") as file:
                     pq = pickle.load(file) 
@@ -502,7 +452,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
             with open(self.boar_queue_path, "wb") as file:
                             pickle.dump(self.boar_queue, file, pickle.HIGHEST_PROTOCOL) 
         with self.fish_queue_lock:
-            print("Lock acquired")
+            print("Merging queue of fish")
             file_name= f"{self.base_directory}/fishqueue{other_traders[0]}.pkl"
             with open(file_name, "rb") as file:
                     pq = pickle.load(file) 
@@ -517,7 +467,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
             with open(self.fish_queue_path, "wb") as file:
                             pickle.dump(self.fish_queue, file, pickle.HIGHEST_PROTOCOL)
         with self.salt_queue_lock:
-            print("Lock acquired")
+            print("Merging queue of salt")
             file_name= f"{self.base_directory}/saltqueue{other_traders[0]}.pkl"
             with open(file_name, "rb") as file:
                     pq = pickle.load(file) 
@@ -555,7 +505,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
 
     def register_product(self):
         time.sleep(10)
-        for i in range(500):
+        for i in range(50):
                 with self.clock_lock:
                     try:
                         _=self.lamport_clock.tick()
@@ -568,8 +518,8 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                 quantity = random.randint(5, 20)
                 with self.active_traders_lock:
                     trader= random.choice(self.active_traders)
-                if trader==5:
-                     quantity=0
+                # if trader==5:
+                #      quantity=0
                 print(f"Registration {i}: seller_id: {self.node_id}, product: {product}, quantity: {quantity}, trader: {trader} at time {datetime.now()}")
                 
                 channel = grpc.insecure_channel(f'localhost:{5000 + trader}')
@@ -582,7 +532,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                     pass
                 
                 # sleep_time=random.randint(10,30)
-                time.sleep(20)  
+                time.sleep(5)  
     
     
     
@@ -607,7 +557,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
             
             sleep_time= 10*self.node_id-4
             time.sleep(sleep_time)
-            for i in range(500):
+            for i in range(50):
                
                     with self.clock_lock:
                         try:
@@ -636,7 +586,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                          pass
                     # print(response)
                     sleep_time=random.randint(10,30)+ self.node_id
-                    time.sleep(sleep_time) 
+                    time.sleep(10) 
     
 
    
@@ -689,8 +639,12 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                 threading.Thread(target=self.buy_product).start()
                 
             if self.node_id in self.active_traders:
-                with open(self.queue_file, "wb") as file:
-                            pickle.dump(self.request_queue, file, pickle.HIGHEST_PROTOCOL)
+                with open(self.boar_queue_path, "wb") as file:
+                            pickle.dump([], file, pickle.HIGHEST_PROTOCOL)
+                with open(self.fish_queue_path, "wb") as file:
+                            pickle.dump([], file, pickle.HIGHEST_PROTOCOL)
+                with open(self.salt_queue_path, "wb") as file:
+                            pickle.dump([], file, pickle.HIGHEST_PROTOCOL)
                  
                 threading.Thread(target=self.monitoring_nodes).start()
                 threading.Thread(target= self.serve_request_boar).start()
@@ -829,7 +783,7 @@ if __name__ == "__main__":
 
     stock_file= "/Users/aishwarya/Downloads/cs677-lab3/stock.json"
     log_file= "/Users/aishwarya/Downloads/cs677-lab3/logs.csv"
-    topology_file= "/Users/aishwarya/Downloads/cs677-lab3/topology{no_of_nodes}.json" 
+    topology_file= f"/Users/aishwarya/Downloads/cs677-lab3/topology{no_of_nodes}.json" 
     
 
     with open(topology_file, "r") as file:
