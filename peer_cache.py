@@ -138,7 +138,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
 
     #Handles the request from seller to register a product 
     def SyncCache(self, request, context):
-        print("cache sync called")
+        print(f"Cache synced at time:{datetime.now()}")
         with self.cache_lock:
               self.cache["boar"]= request.boar 
               self.cache["fish"]= request.fish
