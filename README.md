@@ -48,6 +48,12 @@ This project simulates a distributed trading system with 6-8 peers (buyers, sell
      ```bash
      python run_nodes.py
      ```
+3. **To simulate a failure**
+    ```bash
+     Close the terminal of the trader to quit the process
+     ```
+
+   
 
 ## File Descriptions
 
