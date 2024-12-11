@@ -1,4 +1,4 @@
-
+# peer.py
 import grpc
 import threading
 import sys
@@ -12,43 +12,46 @@ import csv
 import heapq
 import pickle
 import os 
+
 from datetime import datetime 
 from queue import  Queue
-
 from dataclasses import dataclass, field
 from typing import Any 
 
 
 @dataclass(order=True)
 class PrioritizedItem:
-    clock_value: int
-    request: Any = field(compare=False)  
-    role: Any= field(compare= False)
-    trader_id: Any=field(compare=False)  
+    # Represents a prioritized item for handling requests in a queue
+    clock_value: int  # Priority value based on Lamport clock
+    request: Any = field(compare=False)  # The request object (buyer/seller details)
+    role: Any = field(compare=False)  # Role associated with the request (buyer/seller)
+    trader_id: Any = field(compare=False)  # ID of the trader handling the request  
 
     def __iter__(self):
+        # Allows unpacking of the attributes
         yield self.clock_value
         yield self.request
         yield self.role
         yield self.trader_id
 
 class LamportClock:
+    # Implements a Lamport logical clock for distributed systems
     def __init__(self, node_id):
-        self.value = 0
-        self.node_id = node_id
+        self.value = 0  # Initialize the clock value
+        self.node_id = node_id  # Identifier for the node using the clock
         
 
     def tick(self):
-       
-            self.value += 1
-            # print(f"Node {self.node_id} - Lamport Clock Tick: {self.value}")
-            return self.value 
+       # Increment the clock value for internal events
+        self.value += 1
+        # print(f"Node {self.node_id} - Lamport Clock Tick: {self.value}")
+        return self.value 
 
     def update(self, received_value):
-        
-            self.value = max(self.value, received_value)
-            # print(f"Node {self.node_id} - Received Clock: {received_value}, Updated Clock: {self.value}")
-            return self.value
+        # Update the clock value based on a received timestamp
+        self.value = max(self.value, received_value)
+        # print(f"Node {self.node_id} - Received Clock: {received_value}, Updated Clock: {self.value}")
+        return self.value
 
 class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
     def __init__(self, node_id, neighbors, role, log_file,no_of_nodes, opt_out=False):
@@ -73,13 +76,14 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
         # self.request_queue_lock = threading.BoundedSemaphore(1) 
         # self.seller_queue=[]
         # self.seller_queue_lock = threading.BoundedSemaphore(1) 
-        self.requests_processed=0 
-        self.is_election_running= True 
-        self.warehouse_port= 5051
+        
+        self.requests_processed=0 # Counter for processed requests
+        self.is_election_running= True # Flag to indicate if an election is ongoing
+        self.warehouse_port= 5051 # Port for the warehouse server
         self.heartbeat_reply_semaphore = threading.BoundedSemaphore(1)
-        self.heartbeat_flag= True
+        self.heartbeat_flag= True # Flag for heartbeat status
         self.base_directory="/Users/aishwarya/Downloads/cs677-lab3"
-        self.no_of_elections=0 
+        self.no_of_elections=0 # Counter for the number of elections
 
         self.boar_queue_path= self.base_directory+f"/boarqueue{node_id}.pkl"
         self.fish_queue_path= self.base_directory+f"/fishqueue{node_id}.pkl"
@@ -92,9 +96,6 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
         self.salt_queue_lock= threading.BoundedSemaphore(1)
         self.fish_queue_lock= threading.BoundedSemaphore(1)  
 
-
-
-
         self.boar_queue_s_path= self.base_directory+f"/boarqueue_s{node_id}.pkl"
         self.fish_queue_s_path= self.base_directory+f"/fishqueue_s{node_id}.pkl"
         self.salt_queue_s_path= self.base_directory+f"/saltqueue_s{node_id}.pkl"
@@ -105,27 +106,17 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
         self.boar_queue_s_lock= threading.BoundedSemaphore(1)
         self.salt_queue_s_lock= threading.BoundedSemaphore(1)
         self.fish_queue_s_lock= threading.BoundedSemaphore(1)
-        
-
-
-
-       
-        
-    
 
     def ClockUpdate(self, request, context):
-        
-        
+        # Updates the Lamport clock with the received value
         with self.clock_lock:
                 self.lamport_clock.update(request.clock_value)
         return bully_pb2.ClockUpdateResponse(message="Clock updated")
         
-       
     def broadcast_lamport_clock(self, clock_value):
-        
+        # Broadcasts the Lamport clock value to all other nodes
         for node in self.nodes:
             if node!= self.node_id:
-              
                 try:
                     channel = grpc.insecure_channel(f'localhost:{5000 + node}')
                     stub = bully_pb2_grpc.BullyElectionStub(channel)
@@ -133,22 +124,22 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                     stub.ClockUpdate(bully_pb2.ClockMessage(clock_value=clock_value))
                 except grpc.RpcError as e:
                     # print(f"Node {self.node_id} failed to send clock update to Node {node}") 
+                    # Silently handle communication failures
                     pass
     
-    #trader failure handler
+    # Trader failure handler
     def TraderFailure(self, request, context): 
         print(f"Received message that {request.trader_id} has failed at time {datetime.now()}")
         with self.active_traders_lock:
-            self.active_traders.remove(request.trader_id)
-            self.nodes.remove(request.trader_id) 
+            self.active_traders.remove(request.trader_id)# Remove the failed trader from active traders
+            self.nodes.remove(request.trader_id)  # Remove the trader from the node list
         print(self.nodes,self.active_traders )
         return bully_pb2.AckMessage(message="Acknowledged Failure")
 
 
-    #TRADER 
-    #GRPC methods
+    ## TRADER - GRPC methods ##
 
-    #Handles the request from seller to register a product 
+    # Handles the request from seller to register a product 
     def RegisterProduct(self, request, context):
         with self.clock_lock:
             clock_value=self.lamport_clock.update(request.clock)
@@ -195,18 +186,12 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
 
         return bully_pb2.RegisterResponse(message="Received") 
 
-       
-        
-    
-    #Handles the request from a buyer to purchase a product
+    # Handles the request from a buyer to purchase a product
     def BuyRequest(self, request, context):
-       
-        
-        
+
         with self.clock_lock:
             clock_value=self.lamport_clock.update(request.clock)
         
-     
         if request.product=="boar":
             with self.boar_queue_lock:
                 # print("here")
@@ -237,20 +222,17 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                                 pickle.dump(self.salt_queue, file, pickle.HIGHEST_PROTOCOL)
                 except Exception as e:
                     print(e)
-             
-        
+
         return bully_pb2.BuyReturnResponse(message="Product Purchase Request Received")   
     
     
-    #Heartbeat
+    # Heartbeat Protocol
     def HeartBeat(self, request, context):
         # print("Heartbeat", request)
-        return bully_pb2.PingMessage(message="Alive!!!!!!!!!!")
-    
-   
-    
-    #Helper methods 
-    #forwards buyer request to the warehouse 
+        return bully_pb2.PingMessage(message="Alive!")
+
+    # Helper methods 
+    # Forwards buyer request to the warehouse 
     def forward_buyer_request_to_warehouse(self, buyer_id, product, quantity, clock, request_no, tid): 
         try:
             print(f"Forwarding request to warehouse: buyer_id: {buyer_id}, request_no: {request_no}, product: {product}, quantity: {quantity} at {datetime.now()}, trader: {tid}")
@@ -271,18 +253,18 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
         except Exception as e:
              print(e)
     
-    #forwards the seller request to the warehouse 
+    # Forwards the seller request to the warehouse 
     def forward_seller_request_to_warehouse(self, seller_id, product, quantity, registration_no, tid):
         print(f"Forwarding response to warehouse: seller_id: {seller_id}, registration_no: {registration_no}, product: {product}, quantity: {quantity}, trader:{tid} ")
         
-        #forwarding the request to the trader 
+        # Forwarding the request to the trader 
         channel = grpc.insecure_channel(f'localhost:{self.warehouse_port}')
         stub = bully_pb2_grpc.BullyElectionStub(channel)
         response=stub.WarehouseCommunicationSeller(bully_pb2.WCSMessage(
                     seller_id=seller_id, product=product, quantity=quantity, registration_no= registration_no, trader_id= self.node_id
                 ))   
         
-        #forwarding the response to the seller 
+        # Forwarding the response to the seller 
         print(f"Forwarding response from warehouse: seller_id: {seller_id}, registration_no: {registration_no}, message: {response.message} product: {product}, quantity: {quantity}, trader:{tid} ")
         
         channel = grpc.insecure_channel(f'localhost:{5000 + int(seller_id)}')
@@ -291,7 +273,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                  seller_id=response.seller_id, product=response.product, quantity=response.quantity, registration_no= response.registration_no, amount_credited= response.amount_credited, message= response.message
             )) 
     
-    #serves requests from the queue 
+    # Serves requests from the queue 
     def serve_boar_requests(self):
         #  if self.node_id==5:
         #     time.sleep(1000)
@@ -308,42 +290,45 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                     with open(self.boar_queue_path, "wb") as file:
                             pickle.dump(self.boar_queue, file)
             
-            
-    
     def serve_boar_sellers(self):
             # if self.node_id==5:
             #     time.sleep(1000)
 
-            
+            # Processes boar-related seller requests in the secondary queue
             role=None
             while True:
                 with self.boar_queue_s_lock:
                     if self.boar_queue_s:
+                        # Fetch the next seller request from the boar secondary queue
                         clock_value, request, role,tid= heapq.heappop(self.boar_queue_s) 
                         if role=="seller":
+                                # Forward the seller's request to the warehouse
                                 threading.Thread(target= self.forward_seller_request_to_warehouse, args=(request.seller_id,request.product, request.quantity, request.registration_no, tid)).start() 
 
+                        # Save the updated secondary queue state       
                         with open(self.boar_queue_s_path, "wb") as file:
                             pickle.dump(self.boar_queue_s, file)
                     
     def serve_fish_requests(self):
+        # Processes fish-related requests from the queue
         #  if self.node_id==5:
         #     time.sleep(1000)
         role=None
-        time.sleep(20)
+        time.sleep(20) # Initial delay before handling requests
         while True:
             with self.fish_queue_lock:
                 if self.fish_queue:
+                    # Fetch the next request from the fish queue
                     clock_value, request, role,tid= heapq.heappop(self.fish_queue) 
                         
                     if role== "buyer":
+                        # Forward the buyer's request to the warehouse
                         threading.Thread(target= self.forward_buyer_request_to_warehouse, args=(request.buyer_id,request.product, request.quantity, 0, request.request_no,tid)).start() 
-            
+
+                    # Save the updated queue state
                     with open(self.fish_queue_path, "wb") as file:
                             pickle.dump(self.fish_queue, file)
-            
-            
-    
+
     def serve_fish_sellers(self):
             #  if self.node_id==5:
             #     time.sleep(1000)
@@ -376,8 +361,6 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                     with open(self.salt_queue_path, "wb") as file:
                             pickle.dump(self.salt_queue, file)
             
-            
-    
     def serve_salt_sellers(self):
             #  if self.node_id==5:
             #     time.sleep(1000)
@@ -393,42 +376,8 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                         with open(self.salt_queue_s_path, "wb") as file:
                             pickle.dump(self.salt_queue_s, file)
    
-    # def serve_requests(self):
-    #     #  if self.node_id==5:
-    #     #     time.sleep(1000)
-    #     role=None
-    #     time.sleep(20)
-    #     while True:
-    #         with self.request_queue_lock:
-    #             if self.request_queue:
-    #                 clock_value, request, role,tid= heapq.heappop(self.request_queue) 
-                        
-    #                 if role== "buyer":
-    #                     threading.Thread(target= self.forward_buyer_request_to_warehouse, args=(request.buyer_id,request.product, request.quantity, 0, request.request_no,tid)).start() 
-            
-    #                 with open(self.queue_file, "wb") as file:
-    #                         pickle.dump(self.request_queue, file)
-            
-    #         time.sleep(10)
     
-    # def serve_sellers(self):
-    #     #  if self.node_id==5:
-    #     #     time.sleep(1000)
-    #     time.sleep(20)
-    #     role=None
-    #     while True:
-    #         with self.seller_queue_lock:
-    #             if self.seller_queue:
-    #                 clock_value, request, role,tid= heapq.heappop(self.seller_queue) 
-    #                 if role=="seller":
-    #                         threading.Thread(target= self.forward_seller_request_to_warehouse, args=(request.seller_id,request.product, request.quantity, request.registration_no, tid)).start() 
-
-    #                 with open(self.queue_file, "wb") as file:
-    #                     pickle.dump(self.seller_queue, file)
-                
-    #         time.sleep(10)
-    
-    #loop to monitor nodes 
+    # Loop to monitor nodes 
     def monitoring_nodes(self):
         time.sleep(5)
         
@@ -546,39 +495,6 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
             with open(self.salt_queue_s_path, "wb") as file:
                             pickle.dump(self.salt_queue, file, pickle.HIGHEST_PROTOCOL)
     
-        # with self.request_queue_lock:
-        #     print("Lock acquired")
-        #     file_name= f"{self.base_directory}/queue{other_traders[0]}.pkl"
-        #     with open(file_name, "rb") as file:
-        #             pq = pickle.load(file) 
-        #     print("requests before:",self.request_queue)    
-        
-
-        #     merged_pq = pq+ self.request_queue
-        #     heapq.heapify(merged_pq) 
-           
-        #     self.request_queue= merged_pq   
-        #     print("requests after:",self.request_queue)  
-        #     with open(self.queue_file, "wb") as file:
-        #                     pickle.dump(self.request_queue, file, pickle.HIGHEST_PROTOCOL)
-       
-        # with self.seller_queue_lock:
-        #     print("Lock acquired")
-        #     file_name= f"{self.base_directory}/squeue{other_traders[0]}.pkl"
-        #     with open(file_name, "rb") as file:
-        #             pq = pickle.load(file) 
-        #     print("requests before:",self.seller_queue)    
-        
-
-        #     merged_pq = pq+ self.seller_queue
-        #     heapq.heapify(merged_pq) 
-           
-        #     self.seller_queue= merged_pq   
-        #     print("requests after:",self.seller_queue)    
-
-        #     with open(self.seller_queue_file, "wb") as file:
-        #                     pickle.dump(self.seller_queue, file, pickle.HIGHEST_PROTOCOL)
-    
     def trader_failure(self, failed_trader_id):
         for node in self.nodes:
             if node not in self.active_traders and node!=failed_trader_id:
@@ -586,14 +502,13 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                 stub = bully_pb2_grpc.BullyElectionStub(channel)
                 response=stub.TraderFailure(bully_pb2.FailedTraderMessage( message="Trader failure announcement", trader_id= failed_trader_id), timeout=3) 
         
-        #will be useful for cached approach to tell the warehouse not to push anything to the failed trader
+        # Will be useful for cached approach to tell the warehouse not to push anything to the failed trader
         channel = grpc.insecure_channel(f'localhost:{self.warehouse_port}')
         stub = bully_pb2_grpc.BullyElectionStub(channel)
         response=stub.TraderFailure(bully_pb2.FailedTraderMessage( message="Trader failure announcement", trader_id= failed_trader_id), timeout=3) 
   
     
-    #SELLER 
-    #GRPC methods 
+    ## SELLER - GRPC methods ##
    
     def RegistrationProcessed(self, request, context):
         print(f"Warehouse Acknowledgment: seller_id: {request.seller_id}, registration_no: {request.registration_no}, product: {request.product}, quantity: {request.quantity} at time {datetime.now()} ")
@@ -620,21 +535,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                 # sleep_time=random.randint(10,30)
                 time.sleep(5)  
     
-    
-    
-                        
-                        
-                
-         
-    
-
-    
-    
-
-    
-    
-    #BUYER
-    #GRPC methods 
+    ## BUYER - GRPC methods ##
     def PurchaseProcessed(self, request, context):
         print(f"Transaction: message: {request.message},buyer_id: {request.buyer_id}, request_no: {request.request_no}, product: {request.product}, quantity: {request.quantity} at time {datetime.now()}")
         return bully_pb2.PurchaseResponse(message="Okay")
@@ -652,9 +553,6 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                         threading.Thread(target=self.broadcast_lamport_clock, args=(clock_value,)).start()
                     with self.active_traders_lock:
                         trader= random.choice(self.active_traders)
-                    
-                
-
 
                     product = random.choice(["salt", "boar", "fish"])
                     quantity=random.randint(1,3)
@@ -670,11 +568,8 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                     # print(response)
                     sleep_time=random.randint(10,30)+ self.node_id
                     time.sleep(5) 
-            
-    
 
-   
-    #ELECTION STUFF
+    # ELECTION STUFF
     def ElectionMessage(self, request, context):
         self.is_election_running= True
         sender_id = request.sender_id
@@ -693,9 +588,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
         return bully_pb2.ElectionResponse(acknowledgment=False)
 
     def AnnounceLeader(self, request, context):
-       
         self.no_of_elections+=1 
-
         if self.node_id!= request.leader_id:
             with self.active_traders_lock:
                     self.active_traders.append(request.leader_id)
@@ -703,28 +596,15 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
             print(f"Node {self.node_id} acknowledged new trader: Node {request.leader_id} at time {datetime.now()}")
             print("The active traders are : ", self.active_traders)
            
-
-        
         if self.no_of_elections==2:
-
-           
-            
             if self.role == "seller" and self.node_id not in self.active_traders:
-                
-                
-                
                 threading.Thread(target=self.register_product).start()
-                
-                
             if self.role=="buyer" and self.node_id not in self.active_traders:
-               
-               
-             
                 threading.Thread(target=self.buy_product).start()
-                
             if self.node_id in self.active_traders:
                 products=["boar", "fish", "salt"]
-                
+            
+            # Clear all queues for boar, fish, and salt, including secondary queues
                 with open(self.boar_queue_path, "wb") as file:
                                 pickle.dump([], file, pickle.HIGHEST_PROTOCOL)
                 with open(self.boar_queue_s_path, "wb") as file:
@@ -754,10 +634,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
 
                 threading.Thread(target= self.serve_salt_requests).start()
                 threading.Thread(target= self.serve_salt_sellers).start()
-               
-                
-                 
-                
+       
         else:
             if self.node_id==3:
                 
@@ -768,26 +645,27 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
         return bully_pb2.LeaderResponse(message="Leader acknowledged")
 
     def start_election(self):
+        # Initiates the election process for the current node
         if self.no_of_elections==1 and self.node_id==3:
             time.sleep(6)
             print("Second election")
-             
-             
-       
-        if not self.election_lock.acquire(blocking=False):
-            
-            return
 
+        # Ensure no concurrent elections are running
+        if not self.election_lock.acquire(blocking=False):
+            return
         try:
             self.in_election = True
             print(f"Node {self.node_id} is starting an election at time {datetime.now()}")
+            # Identify higher-ranked neighbors
             higher_neighbors = [n for n in self.neighbors if n > self.node_id]
 
+            # If no higher neighbors and not opting out, declare leadership
             if not higher_neighbors and not self.opt_out:
                 self.election_lock.release()
                 self.announce_leader()
-                
                 return
+            
+            # If no higher neighbors and opting out, contact the lowest node
             if not higher_neighbors and self.opt_out:
                 time.sleep(20)
                 
@@ -800,8 +678,7 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                         self.election_lock.release()
                         return 
 
-
-
+            # Notify higher-ranked neighbors about the election
             received_ack = False
             for neighbor in higher_neighbors:
                 try:
@@ -816,17 +693,19 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                 except grpc.RpcError as e:
                     print(f"Node {self.node_id} failed to contact Node {neighbor}: {e}")
 
+            # Declare leadership if no acknowledgment is received
             if not received_ack:
                 self.election_lock.release()
                 self.announce_leader()
         except:
             print("error")
      
-
+    # Forwards the election request to all higher-ranked neighbors
     def forward_election(self, initiator_id):
         higher_neighbors = [n for n in self.neighbors if n > self.node_id]
         for neighbor in higher_neighbors:
             try:
+                # Establish a connection and send the election message
                 channel = grpc.insecure_channel(f'localhost:{5000 + neighbor}')
                 stub = bully_pb2_grpc.BullyElectionStub(channel)
                 stub.ElectionMessage(bully_pb2.ElectionRequest(node_id=initiator_id, sender_id=self.node_id))
@@ -855,41 +734,42 @@ class BullyElectionService(bully_pb2_grpc.BullyElectionServicer):
                     stub.AnnounceLeader(bully_pb2.LeaderAnnouncement(leader_id=self.node_id))
                 except grpc.RpcError as e:
                     print(f"Node {self.node_id} failed to announce leader to Node {neighbor}: {e}") 
-        
-        
-        
-       
 
 def serve(node_id, neighbors, role, log_file,no_of_nodes, opt_out):
+    # Initializes and starts the gRPC server for the given node
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     service = BullyElectionService(node_id, neighbors, role, log_file, no_of_nodes, opt_out)
     bully_pb2_grpc.add_BullyElectionServicer_to_server(service, server)
     server.add_insecure_port(f'[::]:{5000 + node_id}')
     server.start() 
     print(f"Node {node_id} started.")
+
+    # Start election if the node is the designated initiator (node 2)
     time.sleep(10)
     if node_id == 2:
         # print(f"Node {node_id} starting election at time {datetime.now()}")
         threading.Thread(target=service.start_election).start()
+    
+    # Keep the server running
     server.wait_for_termination()
 
 if __name__ == "__main__":
-    node_id = int(sys.argv[1])
-    role = sys.argv[2] 
-    no_of_nodes= int(sys.argv[3])
+    # Entry point for initializing and running the node
+    node_id = int(sys.argv[1])  # Node ID from command-line arguments
+    role = sys.argv[2]  # Role (buyer, seller, trader) from command-line arguments
+    no_of_nodes= int(sys.argv[3])  # Total number of nodes in the system
 
-
+    # File paths for logs and topology
     log_file= "/Users/aishwarya/Downloads/cs677-lab3/logs.csv"
     topology_file= f"/Users/aishwarya/Downloads/cs677-lab3/topology{no_of_nodes}.json" 
 
-    
-         
-
-    
-
+    # Load network topology
     with open(topology_file, "r") as file:
         topology = json.load(file)
     
+    # Get neighbors for the node
     neighbors = topology[str(node_id)]
-    opt_out = node_id == 11
+    opt_out = node_id == 11 # Node 11 is excluded from participating in elections
+
+    # Start the server for the node
     serve(node_id, neighbors, role, log_file, no_of_nodes, opt_out)
